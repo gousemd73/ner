@@ -1,0 +1,8 @@
+uvicorn:
+  workers: 8
+  threads: 4
+  max_requests: 1000
+  debug: true
+  host: "127.0.0.1"
+  port: 8002
+  reload: true
