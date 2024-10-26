@@ -6,14 +6,15 @@ from src.training.train import Model
 from src.training.predictions import TransformerPredict,getPredictions_spacy
 from src.config import logger
 import os
-
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 # Set up the logger
 logs = logger.get_logger(__name__)
+executor = ThreadPoolExecutor()
 
-
-def spacy_train(data):
+async def spacy_train(data):
     """
-    Trains a spaCy model using the provided training data.
+    Asynchronously trains a spaCy model using the provided training data.
 
     Args:
     data (list): A list of dictionaries containing the training data.
@@ -32,32 +33,39 @@ def spacy_train(data):
     """
     logs.info("Creating folder for training spacy model")
     config_paths = get_paths_instance('spacy')
-    create_tagged_data(data,'spacy')
-
+    create_tagged_data(data, 'spacy')
+    logs.info("Creating Tagged data done...")
 
     commands = [
-    "python -m spacy init config ./utils/base_config.cfg --lang en --pipeline ner",
-    "python -m spacy init fill-config ./utils/base_config.cfg ./utils/config.cfg",
-    f"python -m utils.preprocess --train_path \"{config_paths['unique_paths']['training_data_folder']}\" --test_path \"{config_paths['unique_paths']['testing_data_folder']}\"",
-    f"python -m spacy train .\\utils\\config.cfg --output \"{config_paths['unique_paths']['model_output_folder']}\" --paths.train \"{config_paths['unique_paths']['training_data_folder']}\\train.spacy\" --paths.dev \"{config_paths['unique_paths']['testing_data_folder']}\\test.spacy\"",
+        "python -m spacy init fill-config ./utils/base_config.cfg ./utils/config.cfg",
+        f"python -m utils.preprocess --train_path \"{config_paths['unique_paths']['training_data_folder']}\" --test_path \"{config_paths['unique_paths']['testing_data_folder']}\"",
+        f"python -m spacy train .\\utils\\config.cfg --output \"{config_paths['unique_paths']['model_output_folder']}\" --paths.train \"{config_paths['unique_paths']['training_data_folder']}\\train.spacy\" --paths.dev \"{config_paths['unique_paths']['testing_data_folder']}\\test.spacy\"",
     ]
-    # Iterate over each command and execute them one after another
+
     output = None
-    flag = 0
-    for command in commands:
-        #print(command)
-        if(flag == 2):
+    for i, command in enumerate(commands):
+        logs.info(f"Executing command: {i+1}")
+        if i == 2:
             logs.info("Training Started...")
-        process = subprocess.run(command,capture_output=True, text=True, shell=True)
+
+        process = await asyncio.create_subprocess_shell(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        stdout, stderr = await process.communicate()
+        print(stdout,stderr)
         if process.returncode != 0:
-            logs.error(f"Command '{command}' failed with return code {process.returncode}")
-            break
-        output = process.stdout
-        flag = flag +1
-    #logs.info("Training Completed.")
+            logs.error(f"Command '{i+1}' failed with return code {process.returncode}")
+            logs.error(f"Error Output: {stderr.decode().strip()}")
+            raise Exception(f"Command '{i+1}' failed with return code {process.returncode}")
+
+        output = stdout.decode().strip()
+
     return output
 
-def spacy_get_entities(input, url):
+async def spacy_get_entities(input, url):
     """
     Gets named entities from the input text using a trained spaCy model.
 
@@ -70,11 +78,12 @@ def spacy_get_entities(input, url):
     """
     url = os.path.join(url,'model-best')
     if os.path.exists(url):
-        return getPredictions_spacy(input,url)
+        output = await asyncio.get_event_loop().run_in_executor(executor,getPredictions_spacy,input,url)
+        return output
     else:
         return {"Error": "Please give a valid model path"}
 
-def bert_train(url):
+async def bert_train(url):
     """
     Trains a BERT model using the provided training data.
 
@@ -99,11 +108,11 @@ def bert_train(url):
 
     ner_model = Model(unique_paths)
 
-    model_saved_path_name,best_metrics = ner_model.ner_training(model_type=TRF_MODEL_TYPE,model_name=TRF_MODEL_NAME)
+    model_saved_path_name,best_metrics = await asyncio.get_event_loop().run_in_executor(executor,ner_model.ner_training,TRF_MODEL_TYPE,TRF_MODEL_NAME)
     logs.info("Bert Training completed.")
     return {"model_saved_path": model_saved_path_name,"best_model_metris": best_metrics}
 
-def bert_get_entities(input,model_url):
+async def bert_get_entities(input,model_url):
     """
     Gets named entities from the input text using a trained BERT model.
 
@@ -117,7 +126,7 @@ def bert_get_entities(input,model_url):
     url = os.path.join(model_url,'bert_model/best_model')
     if os.path.exists(url):
         trf_pred = TransformerPredict(url)
-        prediction = trf_pred.get_prediction(input)
+        prediction = await asyncio.get_event_loop().run_in_executor(executor,trf_pred.get_prediction,input)
         return {"input": input,"entities": prediction}
     else:
         return {"Error": "Please provide a valid model path"}

@@ -2,7 +2,7 @@ import os
 from src.config.base_config import trf_train_data, TRF_MODEL_NAME,TRF_MODEL_TYPE,trf_test_data
 import pandas as pd
 from simpletransformers.ner import NERModel,NERArgs
-from seqeval.metrics import accuracy_score
+from seqeval.metrics import accuracy_score,classification_report
 import warnings
 import torch
 from src.config import logger
@@ -62,6 +62,8 @@ def NerModel(model_type,model_name,labels,model_output_folder):
         args.save_optimizer_and_scheduler = False
         args.classification_report = True
         device = True if torch.cuda.is_available() else False
+        args.use_multiprocessing = False
+        args.use_multiprocessing_for_evaluation = False
         model = NERModel(model_type, model_name,labels=labels,use_cuda=device,args=args)
 
         return model
@@ -84,12 +86,12 @@ def train_model(model,train_dataframe,eval_dataframe):
         logs.error(f"Error in training model: {e}")
         raise e
 
-def eval_model(model,eval_dataframe):
+def eval_model(model,eval_dataframe,output):
 
     '''Method for evaluation trained model on evaluation dataset...'''
     logs.info("Evaluating Model...")
     try:
-        result, model_outputs, preds_list = model.eval_model(eval_dataframe,accuracy=accuracy_score)
+        result, model_outputs, preds_list = model.eval_model(eval_dataframe,output_dir = output,accuracy=accuracy_score)
 
         return pd.DataFrame.from_dict([result])
 
@@ -103,19 +105,59 @@ class Model:
         self.unique_paths = unique_paths
 
     def get_best_model_results(self,path):
-        logs.info("Choosing best model available...")
-        try:
-            if os.path.exists(path):
-                with open(os.path.join(path,'eval_results.txt'),'r') as f:
-                    data = f.readlines()
-                metrics_dict = {}
-                for metric in data:
-                    key, value = metric.split('=')
-                    metrics_dict[key.strip()] = float(value.strip())
-                return metrics_dict
-        except Exception as e:
-            logs.error(f"Error in getting best model metrics: {e}")
-            raise e
+        # logs.info("Choosing best model available...")
+        # try:
+        #     if os.path.exists(path):
+        #         with open(os.path.join(path,'eval_results.txt'),'r') as f:
+        #             data = f.readlines()
+        #         metrics_dict = {}
+        #         for metric in data:
+        #             key, value = metric.split('=')
+        #             metrics_dict[key.strip()] = float(value.strip())
+        #         return metrics_dict
+        # except Exception as e:
+        #     logs.error(f"Error in getting best model metrics: {e}")
+        #     raise e
+        metrics = {}
+        with open(os.path.join(path,'eval_results.txt'), 'r') as file:
+            lines = file.readlines()
+            
+            # Parsing individual classes and their metrics
+            i = 2  # Skip the first two lines (header lines)
+            while i < len(lines):
+                line = lines[i].strip()
+                
+                if line.startswith("micro avg") or line.startswith("macro avg") or line.startswith("weighted avg"):
+                    avg_type,avg, precision, recall, f1_score, support = line.split()
+                    metrics[avg_type+avg] = {
+                        "precision": float(precision),
+                        "recall": float(recall),
+                        "f1-score": float(f1_score),
+                        "support": int(support)
+                    }
+                elif '=' in line:
+                    # Handle accuracy, eval_loss, etc.
+                    key, value = line.split('=', 1)
+                    metrics[key.strip()] = float(value.strip())
+                else:
+                    # Handle other class metrics
+                    if not line:
+                        i += 1
+                        continue  # Skip empty lines
+                    parts = line.split()
+                    class_name = parts[0]
+                    precision, recall, f1_score, support = float(parts[1]),float(parts[2]),float(parts[3]),int(parts[4])
+                    metrics[class_name] = {
+                        "precision": precision,
+                        "recall": recall,
+                        "f1-score": f1_score,
+                        "support": support
+                    }
+                i += 1
+
+            return metrics
+
+
 
     def ner_training(self,model_type=TRF_MODEL_TYPE,model_name=TRF_MODEL_NAME):
 
@@ -133,6 +175,8 @@ class Model:
             training_progress = train_model(model,train_df,eval_df)
             logs.info("Saving Model path")
             saved_model_path = model.args.best_model_dir
+            bm = NERModel(model_type,saved_model_path,args={"classification_report":True})
+            p_df = eval_model(bm,eval_df,saved_model_path)
             best_model_metrics = self.get_best_model_results(saved_model_path)
 
             return [saved_model_path,best_model_metrics ]

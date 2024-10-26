@@ -33,10 +33,10 @@ def load_training_data(file_path):
             return json.load(file)
     except FileNotFoundError:
         logs.error(f"Error: The file {file_path} was not found.")
-        raise
+        raise FileNotFoundError
     except json.JSONDecodeError:
         logs.error("Error: Failed to decode JSON from the file.")
-        raise
+        raise json.JSONDecodeError
 
 def clean_text(text):
     """
@@ -65,7 +65,7 @@ def clean_text(text):
         return text
     except Exception as e:
         logs.error(f"Error cleaning text: {e}")
-        return text
+        raise e
 
 def split_text(text):
     """
@@ -87,7 +87,7 @@ def split_text(text):
         return dataList
     except Exception as e:
         logs.error(f"Error splitting text: {e}")
-        return []
+        raise e
 
 def create_dataframe(training_data):
     """
@@ -116,6 +116,7 @@ def create_dataframe(training_data):
             all_medical_text = pd.concat((all_medical_text, df), ignore_index=True)
     except Exception as e:
         logs.error(f"Error creating DataFrame: {e}")
+        raise e
         # print(all_medical_text)
     return all_medical_text
 
@@ -135,6 +136,7 @@ def save_to_excel(df, file_path):
         df.to_excel(file_path, index=False)
     except Exception as e:
         logs.error(f"Error saving to Excel: {e}")
+        raise e
 
 def create_entity_dict(training_data):
     """
@@ -219,7 +221,7 @@ def create_entity_dict(training_data):
         return dicts, unique_keys
     except Exception as e:
         logs.error(f"Error creating entity dictionary: {e}")
-        raise
+        raise e
 
 
 def add_tag_in_csv(df, i, key, value, count,unique_labels):
@@ -245,6 +247,7 @@ def add_tag_in_csv(df, i, key, value, count,unique_labels):
 
     except Exception as e:
         logs.error(f"Error adding tag in CSV: {e}")
+        raise e
 
 def tag_data(df, entity_dict,unique_labels):
     """
@@ -269,6 +272,7 @@ def tag_data(df, entity_dict,unique_labels):
                         add_tag_in_csv(df, i, key, values[j][x], x,unique_labels)
     except Exception as e:
         logs.error(f"Error tagging data: {e}")
+        raise e
     return df
 
 
@@ -306,6 +310,7 @@ def clean_dataframe(df):
         df = df.query("text != '' ").dropna()
     except Exception as e:
         logs.error(f"Error cleaning DataFrame: {e}")
+        raise e
     return df
 
 
@@ -401,5 +406,5 @@ def create_tagged_data(data,model_type):
 
     except Exception as e:
         logs.error(f"Error processing tagged data: {e}")
-        raise
+        raise e
     #logs.info("Running annotation done. ")

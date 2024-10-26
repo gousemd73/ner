@@ -46,22 +46,24 @@ async def train_ner_model(model:str, file: UploadFile = File(...)):
     except json.JSONDecodeError:
         logs.error("File content is not valid JSON.")
         raise HTTPException(status_code=400, detail="File content is not valid JSON.")
-    
-    model_name = model.strip().lower()
-    if model_name == 'spacy':
-        spacy_output = spacy_train(data)
-        logs.info("Spacy model, Training Completed...")
-        return {"result": spacy_output}
-    elif model_name == 'bert':
-        out = bert_train(data)
-        logs.info("Bert model, Training Completed...")
-        return {"result": out}
-    else:
-        logs.error("Didn't choose correct model...")
-        return {"message": "Choose model between 'spacy' and 'bert'"}
+    try:
+        model_name = model.strip().lower()
+        if model_name == 'spacy':
+            spacy_output = await spacy_train(data)
+            logs.info("Spacy model, Training Completed...")
+            return {"result": spacy_output}
+        elif model_name == 'bert':
+            out = await bert_train(data)
+            logs.info("Bert model, Training Completed...")
+            return {"result": out}
+        else:
+            logs.error("Didn't choose correct model...")
+            return {"message": "Choose model between 'spacy' and 'bert'"}
+    except Exception as e:
+        raise e
 
 # Function to list available models
-def list_available_models():
+async def list_available_models():
     try:
         models_folder = 'models'
         available_models = []
@@ -81,19 +83,19 @@ def list_available_models():
 @app.get('/available_models')
 async def available_models():
     logs.info("Looking available existing models")
-    models = list_available_models()
+    models = await list_available_models()
     return {"available_models": models}
 
 @app.get('/entities')
 async def get_output(input_text: str, model_url: str = Query(...)):
     if 'spacy' in model_url:
         logs.info("Spacy model selected and getting entities.")
-        spacy_entities = spacy_get_entities(input_text, model_url)
+        spacy_entities = await spacy_get_entities(input_text, model_url)
         logs.info("Spacy model prediction completed")
         return {"input": input_text, "entities": spacy_entities}
     elif 'bert' in model_url:
         logs.info("Bert model selected and getting entities.")
-        bert_output = bert_get_entities(input_text, model_url)
+        bert_output = await bert_get_entities(input_text, model_url)
         logs.info("Bert model prediction completed")
         return bert_output
     else:
